@@ -6,7 +6,7 @@ import {
 } from '@primer/octicons-react'
 import {useSSRSafeId} from '@react-aria/ssr'
 import classnames from 'classnames'
-import React from 'react'
+import React, {Children} from 'react'
 import styled, {keyframes} from 'styled-components'
 import {get} from '../constants'
 import {ConfirmationDialog} from '../Dialog/ConfirmationDialog'
@@ -20,14 +20,20 @@ import VisuallyHidden from '../_VisuallyHidden'
 import {getAccessibleName} from './shared'
 import {getFirstChildElement, useRovingTabIndex} from './useRovingTabIndex'
 import {useTypeahead} from './useTypeahead'
+import ObservableBox from './ObservableBox'
+import useIntersectionObserver from './useIntersectionObserver'
 
 // ----------------------------------------------------------------------------
 // Context
 
 const RootContext = React.createContext<{
   announceUpdate: (message: string) => void
+  scrollableContainer?: React.RefObject<HTMLDivElement>
+  virtualize?: boolean
 }>({
-  announceUpdate: () => {}
+  announceUpdate: () => {},
+  scrollableContainer: undefined,
+  virtualize: false
 })
 
 const ItemContext = React.createContext<{
@@ -57,6 +63,8 @@ export type TreeViewProps = {
   'aria-label'?: React.AriaAttributes['aria-label']
   'aria-labelledby'?: React.AriaAttributes['aria-labelledby']
   children: React.ReactNode
+  scrollableContainer?: React.RefObject<HTMLDivElement>
+  virtualize?: boolean
 }
 
 const UlBox = styled.ul<SxProp>`
@@ -238,7 +246,13 @@ const UlBox = styled.ul<SxProp>`
   ${sx}
 `
 
-const Root: React.FC<TreeViewProps> = ({'aria-label': ariaLabel, 'aria-labelledby': ariaLabelledby, children}) => {
+const Root: React.FC<TreeViewProps> = ({
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledby,
+  children,
+  scrollableContainer,
+  virtualize
+}) => {
   const containerRef = React.useRef<HTMLUListElement>(null)
   const [ariaLiveMessage, setAriaLiveMessage] = React.useState('')
 
@@ -258,7 +272,7 @@ const Root: React.FC<TreeViewProps> = ({'aria-label': ariaLabel, 'aria-labelledb
   }, [])
 
   return (
-    <RootContext.Provider value={{announceUpdate}}>
+    <RootContext.Provider value={{announceUpdate, scrollableContainer, virtualize}}>
       <>
         <VisuallyHidden role="status" aria-live="polite" aria-atomic="true">
           {ariaLiveMessage}
@@ -490,12 +504,52 @@ export type TreeViewSubTreeProps = {
 }
 
 const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
-  const {announceUpdate} = React.useContext(RootContext)
+  const {announceUpdate, scrollableContainer, virtualize} = React.useContext(RootContext)
   const {itemId, isExpanded, isSubTreeEmpty, setIsSubTreeEmpty} = React.useContext(ItemContext)
   const [isLoadingItemVisible, setIsLoadingItemVisible] = React.useState(false)
+  const [isInViewport, setIsInViewport] = React.useState(false)
   const {safeSetTimeout} = useSafeTimeout()
   const loadingItemRef = React.useRef<HTMLElement>(null)
   const ref = React.useRef<HTMLElement>(null)
+
+  const handleIntersection = React.useCallback(
+    (entries: IntersectionObserverEntry[]) => {
+      // update map with latest entries
+      for (const entry of entries) {
+        // eslint-disable-next-line no-console
+        console.log(entry)
+        const bottomAboveViewport =
+          entry.target.getAttribute('data-intersection') === 'bottom' &&
+          entry.rootBounds &&
+          entry.boundingClientRect.y < entry.rootBounds.y &&
+          entry.intersectionRatio === 0
+        const topBelowViewport =
+          entry.target.getAttribute('data-intersection') === 'top' &&
+          entry.rootBounds &&
+          entry.boundingClientRect.y > entry.rootBounds.y &&
+          entry.intersectionRatio === 0
+        if (bottomAboveViewport || topBelowViewport) {
+          // eslint-disable-next-line no-console
+          console.log('Top is below, safe to hide')
+          if (isInViewport) {
+            setIsInViewport(false)
+          }
+        } else if (entry.intersectionRatio === 1) {
+          // eslint-disable-next-line no-console
+          console.log('Time to show')
+          if (!isInViewport) {
+            setIsInViewport(true)
+          }
+        }
+      }
+    },
+    [isInViewport]
+  )
+
+  const [observe, unobserve] = useIntersectionObserver(handleIntersection, {
+    root: scrollableContainer?.current,
+    rootMargin: '100rem'
+  })
 
   React.useEffect(() => {
     // If `state` is undefined, we're working in a synchronous context and need
@@ -578,7 +632,21 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
       // @ts-ignore Box doesn't have type support for `ref` used in combination with `as`
       ref={ref}
     >
-      {isLoadingItemVisible ? <LoadingItem ref={loadingItemRef} count={count} /> : children}
+      {virtualize && (
+        <ObservableBox role="presentation" onObserve={observe} onUnobserve={unobserve} data-intersection="top" />
+      )}
+      {!virtualize || isInViewport ? (
+        isLoadingItemVisible ? (
+          <LoadingItem ref={loadingItemRef} count={count} />
+        ) : (
+          children
+        )
+      ) : (
+        <li style={{height: `${2 * React.Children.count(children)}rem`}} />
+      )}
+      {virtualize && (
+        <ObservableBox role="presentation" onObserve={observe} onUnobserve={unobserve} data-intersection="bottom" />
+      )}
     </ul>
   )
 }

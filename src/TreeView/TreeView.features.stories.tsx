@@ -660,4 +660,36 @@ StressTest.parameters = {
   chromatic: {disableSnapshot: true}
 }
 
+export const Virtualized: Story = () => {
+  const scrollableRef = React.createRef<HTMLDivElement>()
+  return (
+    <Box sx={{overflow: 'auto', height: '200px'}} ref={scrollableRef}>
+      <TreeView aria-label="Files" virtualize={true} scrollableContainer={scrollableRef}>
+        {Array.from({length: 100}).map((_, index) => (
+          <TreeView.Item key={index}>
+            <TreeView.LeadingVisual>
+              <TreeView.DirectoryIcon />
+            </TreeView.LeadingVisual>
+            Directory {index}
+            <TreeView.SubTree>
+              {Array.from({length: 100}).map((_, index) => (
+                <TreeView.Item key={index}>
+                  <TreeView.LeadingVisual>
+                    <FileIcon />
+                  </TreeView.LeadingVisual>
+                  File {index}
+                </TreeView.Item>
+              ))}
+            </TreeView.SubTree>
+          </TreeView.Item>
+        ))}
+      </TreeView>
+    </Box>
+  )
+}
+
+StressTest.parameters = {
+  chromatic: {disableSnapshot: true}
+}
+
 export default meta
