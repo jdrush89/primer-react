@@ -507,48 +507,73 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
   const {announceUpdate, scrollableContainer, virtualize} = React.useContext(RootContext)
   const {itemId, isExpanded, isSubTreeEmpty, setIsSubTreeEmpty} = React.useContext(ItemContext)
   const [isLoadingItemVisible, setIsLoadingItemVisible] = React.useState(false)
-  const [isInViewport, setIsInViewport] = React.useState(false)
+  const [visibleStartIndex, setVisibleStartIndex] = React.useState(0)
+  const [visibleEndIndex, setVisibleEndIndex] = React.useState(100)
   const {safeSetTimeout} = useSafeTimeout()
   const loadingItemRef = React.useRef<HTMLElement>(null)
   const ref = React.useRef<HTMLElement>(null)
+  const childCount = React.Children.count(children)
 
   const handleIntersection = React.useCallback(
     (entries: IntersectionObserverEntry[]) => {
-      // update map with latest entries
       for (const entry of entries) {
         // eslint-disable-next-line no-console
         console.log(entry)
         const bottomAboveViewport =
-          entry.target.getAttribute('data-intersection') === 'bottom' &&
+          entry.target.getAttribute('data-intersection') === 'below' &&
           entry.rootBounds &&
           entry.boundingClientRect.y < entry.rootBounds.y &&
           entry.intersectionRatio === 0
         const topBelowViewport =
-          entry.target.getAttribute('data-intersection') === 'top' &&
+          entry.target.getAttribute('data-intersection') === 'above' &&
           entry.rootBounds &&
           entry.boundingClientRect.y > entry.rootBounds.y &&
           entry.intersectionRatio === 0
-        if (bottomAboveViewport || topBelowViewport) {
+        if (bottomAboveViewport) {
+          // eslint-disable-next-line no-console
+          console.log('Bottom is above, safe to hide')
+          setVisibleStartIndex(childCount)
+          setVisibleEndIndex(childCount)
+        } else if (topBelowViewport) {
           // eslint-disable-next-line no-console
           console.log('Top is below, safe to hide')
-          if (isInViewport) {
-            setIsInViewport(false)
-          }
-        } else if (entry.intersectionRatio === 1) {
-          // eslint-disable-next-line no-console
-          console.log('Time to show')
-          if (!isInViewport) {
-            setIsInViewport(true)
+          setVisibleStartIndex(0)
+          setVisibleEndIndex(0)
+        } else if (entry.intersectionRatio > 0) {
+          if (entry.target.getAttribute('data-intersection') === 'below') {
+            // show the next 50 items
+            // eslint-disable-next-line no-console
+            console.log('show the next 50 items')
+            setVisibleStartIndex(Math.max(visibleEndIndex - 50, 0))
+            setVisibleEndIndex(Math.min(visibleEndIndex + 50, childCount))
+          } else if (entry.target.getAttribute('data-intersection') === 'above') {
+            // show the previous 50 items
+            // eslint-disable-next-line no-console
+            console.log('show the previous 50 items')
+            setVisibleStartIndex(Math.max(visibleStartIndex - 50, 0))
+            setVisibleEndIndex(Math.min(visibleStartIndex + 50, childCount))
+          } else if (entry.target.getAttribute('data-intersection') === 'start' && visibleStartIndex !== 0) {
+            // show the first 100 items
+            // eslint-disable-next-line no-console
+            console.log('show the first 100 items')
+            setVisibleStartIndex(0)
+            setVisibleEndIndex(Math.min(visibleStartIndex + 100, childCount))
+          } else if (entry.target.getAttribute('data-intersection') === 'end' && visibleEndIndex < childCount) {
+            // show the last 100 items
+            // eslint-disable-next-line no-console
+            console.log('show the first 100 items')
+            setVisibleStartIndex(Math.max(childCount - 100, 0))
+            setVisibleEndIndex(Math.min(100, childCount))
           }
         }
       }
     },
-    [isInViewport]
+    [childCount, visibleEndIndex, visibleStartIndex]
   )
 
   const [observe, unobserve] = useIntersectionObserver(handleIntersection, {
     root: scrollableContainer?.current,
-    rootMargin: '100rem'
+    rootMargin: '200px'
   })
 
   React.useEffect(() => {
@@ -621,7 +646,10 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
     return null
   }
 
-  return (
+  const childrenArray = React.Children.toArray(children)
+  childrenArray.slice(visibleStartIndex, visibleEndIndex)
+
+  const list = (
     <ul
       role="group"
       style={{
@@ -632,22 +660,36 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
       // @ts-ignore Box doesn't have type support for `ref` used in combination with `as`
       ref={ref}
     >
-      {virtualize && (
-        <ObservableBox role="presentation" onObserve={observe} onUnobserve={unobserve} data-intersection="top" />
-      )}
-      {!virtualize || isInViewport ? (
-        isLoadingItemVisible ? (
-          <LoadingItem ref={loadingItemRef} count={count} />
-        ) : (
-          children
-        )
+      {isLoadingItemVisible ? (
+        <LoadingItem ref={loadingItemRef} count={count} />
+      ) : virtualize ? (
+        React.Children.toArray(children).slice(visibleStartIndex, visibleEndIndex)
       ) : (
-        <li style={{height: `${2 * React.Children.count(children)}rem`}} />
-      )}
-      {virtualize && (
-        <ObservableBox role="presentation" onObserve={observe} onUnobserve={unobserve} data-intersection="bottom" />
+        children
       )}
     </ul>
+  )
+
+  return virtualize ? (
+    <>
+      <ObservableBox
+        style={{paddingTop: `${2 * visibleStartIndex}rem`}}
+        role="presentation"
+        onObserve={observe}
+        onUnobserve={unobserve}
+        data-intersection="above"
+      />
+      {list}
+      <ObservableBox
+        style={{paddingBottom: `${2 * (childCount - visibleEndIndex)}rem`}}
+        role="presentation"
+        onObserve={observe}
+        onUnobserve={unobserve}
+        data-intersection="below"
+      />
+    </>
+  ) : (
+    list
   )
 }
 
