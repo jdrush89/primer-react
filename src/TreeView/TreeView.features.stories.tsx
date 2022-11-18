@@ -677,36 +677,36 @@ export const Virtualized: Story = () => {
     <Box sx={{overflow: 'auto', height: '200px'}} ref={scrollableRef}>
       <TreeView aria-label="Files" virtualize={true} scrollableContainer={scrollableRef}>
         {Array.from({length: 10}).map((_, index) => (
-          <TreeView.Item key={index} defaultExpanded={true}>
+          <TreeView.Item key={index} defaultExpanded={true} id={`directory-${index}`}>
             <TreeView.LeadingVisual>
               <TreeView.DirectoryIcon />
             </TreeView.LeadingVisual>
             Directory {index}
             <TreeView.SubTree>
-              {Array.from({length: 2}).map((_, index) => (
-                <TreeView.Item key={index} defaultExpanded={true}>
+              {Array.from({length: 2}).map((_, innerIndex) => (
+                <TreeView.Item key={innerIndex} defaultExpanded={true} id={`nested-directory-${index}-${innerIndex}`}>
                   <TreeView.LeadingVisual>
                     <TreeView.DirectoryIcon />
                   </TreeView.LeadingVisual>
-                  Directory {index}
+                  Directory {innerIndex}
                   <TreeView.SubTree>
-                    {Array.from({length: 20}).map((_, index) => (
-                      <TreeView.Item key={index}>
+                    {Array.from({length: 20}).map((_, innerFileIndex) => (
+                      <TreeView.Item key={innerFileIndex} id={`nested-file-${index}--${innerIndex}-${innerFileIndex}`}>
                         <TreeView.LeadingVisual>
                           <FileIcon />
                         </TreeView.LeadingVisual>
-                        File {index}
+                        File {innerFileIndex}
                       </TreeView.Item>
                     ))}
                   </TreeView.SubTree>
                 </TreeView.Item>
               ))}
-              {Array.from({length: 100}).map((_, index) => (
-                <TreeView.Item key={index}>
+              {Array.from({length: 100}).map((_, fileIndex) => (
+                <TreeView.Item key={fileIndex} id={`file-${index}-${fileIndex}`}>
                   <TreeView.LeadingVisual>
                     <FileIcon />
                   </TreeView.LeadingVisual>
-                  File {index}
+                  File {fileIndex}
                 </TreeView.Item>
               ))}
             </TreeView.SubTree>

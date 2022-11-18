@@ -22,6 +22,7 @@ import {getFirstChildElement, useRovingTabIndex} from './useRovingTabIndex'
 import {useTypeahead} from './useTypeahead'
 import ObservableBox from './ObservableBox'
 import useIntersectionObserver from './useIntersectionObserver'
+import {onlyText} from 'react-children-utilities'
 
 // ----------------------------------------------------------------------------
 // Context
@@ -33,11 +34,13 @@ const RootContext = React.createContext<{
   // when their parent is collapsed.
   expandedStateCache: React.RefObject<Map<string, boolean> | null>
   scrollableContainer?: React.RefObject<HTMLDivElement>
+  subTreeContents: {[id: string]: string[]}
   virtualize?: boolean
 }>({
   announceUpdate: () => {},
   expandedStateCache: {current: new Map()},
   scrollableContainer: undefined,
+  subTreeContents: {},
   virtualize: false
 })
 
@@ -259,6 +262,7 @@ const Root: React.FC<TreeViewProps> = ({
   virtualize
 }) => {
   const containerRef = React.useRef<HTMLUListElement>(null)
+  const subTreeContents = React.useRef<{[id: string]: string[]}>({})
   const [ariaLiveMessage, setAriaLiveMessage] = React.useState('')
   const announceUpdate = React.useCallback((message: string) => {
     setAriaLiveMessage(message)
@@ -286,6 +290,7 @@ const Root: React.FC<TreeViewProps> = ({
         announceUpdate,
         expandedStateCache,
         scrollableContainer,
+        subTreeContents: subTreeContents.current,
         virtualize
       }}
     >
@@ -317,6 +322,9 @@ export type TreeViewItemProps = {
 }
 
 const {Slots, Slot} = createSlots(['LeadingVisual', 'TrailingVisual'])
+
+// height in rem
+const defaultItemHeight = 2
 
 const Item = React.forwardRef<HTMLElement, TreeViewItemProps>(
   (
@@ -523,7 +531,7 @@ export type TreeViewSubTreeProps = {
 }
 
 const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
-  const {announceUpdate, scrollableContainer, virtualize} = React.useContext(RootContext)
+  const {announceUpdate, scrollableContainer, subTreeContents, virtualize} = React.useContext(RootContext)
   const {itemId, isExpanded, isSubTreeEmpty, setIsSubTreeEmpty} = React.useContext(ItemContext)
   const [isLoadingItemVisible, setIsLoadingItemVisible] = React.useState(false)
   const [visibleStartIndex, setVisibleStartIndex] = React.useState(0)
@@ -532,6 +540,7 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
   const loadingItemRef = React.useRef<HTMLElement>(null)
   const ref = React.useRef<HTMLElement>(null)
   const childCount = React.Children.count(children)
+  const subTreeId = `/${itemId}`
 
   const handleIntersection = React.useCallback(
     (entries: IntersectionObserverEntry[]) => {
@@ -571,18 +580,6 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
             console.log('show the previous 50 items')
             setVisibleStartIndex(Math.max(visibleStartIndex - 50, 0))
             setVisibleEndIndex(Math.min(visibleStartIndex + 50, childCount))
-          } else if (entry.target.getAttribute('data-intersection') === 'start' && visibleStartIndex !== 0) {
-            // show the first 100 items
-            // eslint-disable-next-line no-console
-            console.log('show the first 100 items')
-            setVisibleStartIndex(0)
-            setVisibleEndIndex(Math.min(visibleStartIndex + 100, childCount))
-          } else if (entry.target.getAttribute('data-intersection') === 'end' && visibleEndIndex < childCount) {
-            // show the last 100 items
-            // eslint-disable-next-line no-console
-            console.log('show the first 100 items')
-            setVisibleStartIndex(Math.max(childCount - 100, 0))
-            setVisibleEndIndex(Math.min(100, childCount))
           }
         }
       }
@@ -661,6 +658,25 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
     }
   }, [state, safeSetTimeout, isLoadingItemVisible, itemId])
 
+  React.useEffect(() => {
+    const contents = []
+    for (const child of React.Children.toArray(children)) {
+      const childrenWithoutSubTree = getChildrenWithoutSubTree((child as React.ReactElement).props.children)
+      const textContent = onlyText(childrenWithoutSubTree)
+      // eslint-disable-next-line no-console
+      console.log(textContent)
+      contents.push(textContent)
+      const subTree = getSubTree((child as React.ReactElement).props.children)
+      if (subTree) {
+        // Add the subtree to the current contents
+        // eslint-disable-next-line no-console
+        console.log(subTree.toString())
+        contents.push(`/${(child as React.ReactElement).props.id}`)
+      }
+    }
+    subTreeContents[subTreeId] = contents
+  }, [children, itemId, subTreeContents, subTreeId])
+
   if (!isExpanded) {
     return null
   }
@@ -689,10 +705,22 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
     </ul>
   )
 
+  let paddingTop = 0
+  let contentStartIndex = visibleStartIndex
+  for (let i = 0; i < contentStartIndex; i++) {
+    if (subTreeContents[subTreeId][i].charAt(0) === '/') {
+      // increase the index to stop this loop at since this item is a subtree
+      contentStartIndex++
+      // get the height of the subtree
+    } else {
+      paddingTop += defaultItemHeight
+    }
+  }
+
   return virtualize ? (
     <>
       <ObservableBox
-        style={{paddingTop: `${2 * visibleStartIndex}rem`}}
+        style={{paddingTop: `${paddingTop}rem`}}
         role="presentation"
         onObserve={observe}
         onUnobserve={unobserve}
@@ -700,7 +728,7 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
       />
       {list}
       <ObservableBox
-        style={{paddingBottom: `${2 * (childCount - visibleEndIndex)}rem`}}
+        style={{paddingBottom: `${defaultItemHeight * (childCount - visibleEndIndex)}rem`}}
         role="presentation"
         onObserve={observe}
         onUnobserve={unobserve}
@@ -814,13 +842,9 @@ const LoadingItem = React.forwardRef<HTMLElement, LoadingItemProps>(({count}, re
 
 function useSubTree(children: React.ReactNode) {
   return React.useMemo(() => {
-    const subTree = React.Children.toArray(children).find(
-      child => React.isValidElement(child) && child.type === SubTree
-    )
+    const subTree = getSubTree(children)
 
-    const childrenWithoutSubTree = React.Children.toArray(children).filter(
-      child => !(React.isValidElement(child) && child.type === SubTree)
-    )
+    const childrenWithoutSubTree = getChildrenWithoutSubTree(children)
 
     return {
       subTree,
@@ -828,6 +852,14 @@ function useSubTree(children: React.ReactNode) {
       hasSubTree: Boolean(subTree)
     }
   }, [children])
+}
+
+function getSubTree(children: React.ReactNode) {
+  return React.Children.toArray(children).find(child => React.isValidElement(child) && child.type === SubTree)
+}
+
+function getChildrenWithoutSubTree(children: React.ReactNode) {
+  return React.Children.toArray(children).filter(child => !(React.isValidElement(child) && child.type === SubTree))
 }
 
 // ----------------------------------------------------------------------------
