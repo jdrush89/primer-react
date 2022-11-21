@@ -672,47 +672,51 @@ StressTest.parameters = {
 }
 
 export const Virtualized: Story = () => {
+  const [virtualize, setVirtualize] = React.useState(true)
   const scrollableRef = React.createRef<HTMLDivElement>()
   return (
-    <Box sx={{overflow: 'auto', height: '200px'}} ref={scrollableRef}>
-      <TreeView aria-label="Files" virtualize={true} scrollableContainer={scrollableRef}>
-        {Array.from({length: 10}).map((_, index) => (
-          <TreeView.Item key={index} defaultExpanded={true} id={`directory-${index}`}>
-            <TreeView.LeadingVisual>
-              <TreeView.DirectoryIcon />
-            </TreeView.LeadingVisual>
-            Directory {index}
-            <TreeView.SubTree>
-              {Array.from({length: 2}).map((_, innerIndex) => (
-                <TreeView.Item key={innerIndex} defaultExpanded={true} id={`nested-directory-${index}-${innerIndex}`}>
-                  <TreeView.LeadingVisual>
-                    <TreeView.DirectoryIcon />
-                  </TreeView.LeadingVisual>
-                  Directory {innerIndex}
-                  <TreeView.SubTree>
-                    {Array.from({length: 20}).map((_, innerFileIndex) => (
-                      <TreeView.Item key={innerFileIndex} id={`nested-file-${index}--${innerIndex}-${innerFileIndex}`}>
-                        <TreeView.LeadingVisual>
-                          <FileIcon />
-                        </TreeView.LeadingVisual>
-                        File {innerFileIndex}
-                      </TreeView.Item>
-                    ))}
-                  </TreeView.SubTree>
-                </TreeView.Item>
-              ))}
-              {Array.from({length: 100}).map((_, fileIndex) => (
-                <TreeView.Item key={fileIndex} id={`file-${index}-${fileIndex}`}>
-                  <TreeView.LeadingVisual>
-                    <FileIcon />
-                  </TreeView.LeadingVisual>
-                  File {fileIndex}
-                </TreeView.Item>
-              ))}
-            </TreeView.SubTree>
-          </TreeView.Item>
-        ))}
-      </TreeView>
+    <Box sx={{display: 'flex', width: '500px'}}>
+      <Box sx={{overflow: 'auto', height: '200px', flexGrow: 1}} ref={scrollableRef}>
+        <TreeView aria-label="Files" virtualize={virtualize} scrollableContainer={scrollableRef}>
+          {Array.from({length: 10}).map((_, index) => (
+            <TreeView.Item key={index} defaultExpanded={true} id={`directory-${index}`}>
+              <TreeView.LeadingVisual>
+                <TreeView.DirectoryIcon />
+              </TreeView.LeadingVisual>
+              Directory {index}
+              <TreeView.SubTree>
+                {Array.from({length: 2}).map((_, innerIndex) => (
+                  <TreeView.Item key={innerIndex} defaultExpanded={true} id={`nested-directory-${index}-${innerIndex}`}>
+                    <TreeView.LeadingVisual>
+                      <TreeView.DirectoryIcon />
+                    </TreeView.LeadingVisual>
+                    Directory {innerIndex}
+                    <TreeView.SubTree>
+                      {Array.from({length: 20}).map((_, innerFileIndex) => (
+                        <TreeView.Item key={innerFileIndex} id={`nested-file-${index}--${innerIndex}-${innerFileIndex}`}>
+                          <TreeView.LeadingVisual>
+                            <FileIcon />
+                          </TreeView.LeadingVisual>
+                          File {innerFileIndex}
+                        </TreeView.Item>
+                      ))}
+                    </TreeView.SubTree>
+                  </TreeView.Item>
+                ))}
+                {Array.from({length: 200}).map((_, fileIndex) => (
+                  <TreeView.Item key={fileIndex} id={`file-${index}-${fileIndex}`} current={index === 9 && fileIndex === 50}>
+                    <TreeView.LeadingVisual>
+                      <FileIcon />
+                    </TreeView.LeadingVisual>
+                    File {fileIndex}
+                  </TreeView.Item>
+                ))}
+              </TreeView.SubTree>
+            </TreeView.Item>
+          ))}
+        </TreeView>
+      </Box>
+      <Button sx={{height: '32px'}} onClick={() => setVirtualize(!virtualize)}>{`Virtualize ${virtualize ? 'off' : 'on'}`}</Button>
     </Box>
   )
 }
