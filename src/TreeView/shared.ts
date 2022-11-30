@@ -9,3 +9,5 @@ export function getAccessibleName(element: Element) {
   if (labelledby) return document.getElementById(labelledby)?.textContent ?? ''
   return element.textContent ?? ''
 }
+
+export const ROOT_ID = ''

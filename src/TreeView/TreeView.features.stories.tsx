@@ -650,14 +650,14 @@ export const StressTest: Story = () => {
           <TreeView.LeadingVisual>
             <TreeView.DirectoryIcon />
           </TreeView.LeadingVisual>
-          Directory {i}
+          {`Directory ${i}`}
           <TreeView.SubTree>
             {Array.from({length: 100}).map((_, j) => (
               <TreeView.Item key={i} id={`directory-${i}/file-${j}`}>
                 <TreeView.LeadingVisual>
                   <FileIcon />
                 </TreeView.LeadingVisual>
-                File {j}
+                {`File ${j}`}
               </TreeView.Item>
             ))}
           </TreeView.SubTree>
@@ -673,11 +673,10 @@ StressTest.parameters = {
 
 export const Virtualized: Story = () => {
   const [virtualize, setVirtualize] = React.useState(true)
-  const scrollableRef = React.createRef<HTMLDivElement>()
   return (
     <Box sx={{display: 'flex', width: '500px'}}>
-      <Box sx={{overflow: 'auto', height: '200px', flexGrow: 1}} ref={scrollableRef}>
-        <TreeView aria-label="Files" virtualize={virtualize} scrollableContainer={scrollableRef}>
+      <Box sx={{overflow: 'auto', height: '200px', flexGrow: 1}}>
+        <TreeView aria-label="Files" virtualize={virtualize}>
           {Array.from({length: 10}).map((_, index) => (
             <TreeView.Item key={index} defaultExpanded={true} id={`directory-${index}`}>
               <TreeView.LeadingVisual>
@@ -693,7 +692,10 @@ export const Virtualized: Story = () => {
                     Directory {innerIndex}
                     <TreeView.SubTree>
                       {Array.from({length: 20}).map((_, innerFileIndex) => (
-                        <TreeView.Item key={innerFileIndex} id={`nested-file-${index}--${innerIndex}-${innerFileIndex}`}>
+                        <TreeView.Item
+                          key={innerFileIndex}
+                          id={`nested-file-${index}--${innerIndex}-${innerFileIndex}`}
+                        >
                           <TreeView.LeadingVisual>
                             <FileIcon />
                           </TreeView.LeadingVisual>
@@ -704,11 +706,15 @@ export const Virtualized: Story = () => {
                   </TreeView.Item>
                 ))}
                 {Array.from({length: 200}).map((_, fileIndex) => (
-                  <TreeView.Item key={fileIndex} id={`file-${index}-${fileIndex}`} current={index === 9 && fileIndex === 50}>
+                  <TreeView.Item
+                    key={fileIndex}
+                    id={`file-${index}-${fileIndex}`}
+                    current={index === 9 && fileIndex === 100}
+                  >
                     <TreeView.LeadingVisual>
                       <FileIcon />
                     </TreeView.LeadingVisual>
-                    File {fileIndex}
+                    {index === 9 && fileIndex === 100 && 'zz '}File {fileIndex}
                   </TreeView.Item>
                 ))}
               </TreeView.SubTree>
@@ -716,7 +722,9 @@ export const Virtualized: Story = () => {
           ))}
         </TreeView>
       </Box>
-      <Button sx={{height: '32px'}} onClick={() => setVirtualize(!virtualize)}>{`Virtualize ${virtualize ? 'off' : 'on'}`}</Button>
+      <Button sx={{height: '32px'}} onClick={() => setVirtualize(!virtualize)}>{`Virtualize ${
+        virtualize ? 'off' : 'on'
+      }`}</Button>
     </Box>
   )
 }

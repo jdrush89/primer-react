@@ -16,19 +16,21 @@ import Spinner from '../Spinner'
 import sx, {SxProp} from '../sx'
 import Text from '../Text'
 import createSlots from '../utils/create-slots'
+import {getScrollContainer} from '../utils/scroll'
 import VisuallyHidden from '../_VisuallyHidden'
-import {getAccessibleName} from './shared'
+import {getAccessibleName, ROOT_ID} from './shared'
 import {getFirstChildElement, useRovingTabIndex} from './useRovingTabIndex'
 import {useTypeahead} from './useTypeahead'
 import ObservableBox from './ObservableBox'
 import useIntersectionObserver from './useIntersectionObserver'
-import {onlyText} from 'react-children-utilities'
+import {useSubTreeContents, useSubTree} from './useSubTreeContents'
 
 // ----------------------------------------------------------------------------
 // Context
 
 type ItemInfo = {
-  text: string,
+  id: string
+  text: string
   subTreeId?: string
 }
 
@@ -40,13 +42,15 @@ const RootContext = React.createContext<{
   // across remounts. This is necessary because we unmount tree items
   // when their parent is collapsed.
   expandedStateCache: React.RefObject<Map<string, boolean> | null>
-  scrollableContainer?: React.RefObject<HTMLDivElement>
+  rowHeight: number
+  scrollableContainer: Element | null
   subTreeContents: SubTreeContents
   virtualize?: boolean
 }>({
   announceUpdate: () => {},
   expandedStateCache: {current: new Map()},
-  scrollableContainer: undefined,
+  rowHeight: 2,
+  scrollableContainer: null,
   subTreeContents: {},
   virtualize: false
 })
@@ -78,7 +82,7 @@ export type TreeViewProps = {
   'aria-label'?: React.AriaAttributes['aria-label']
   'aria-labelledby'?: React.AriaAttributes['aria-labelledby']
   children: React.ReactNode
-  scrollableContainer?: React.RefObject<HTMLDivElement>
+  rowHeight?: number
   virtualize?: boolean
 }
 
@@ -265,10 +269,23 @@ const Root: React.FC<TreeViewProps> = ({
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledby,
   children,
-  scrollableContainer,
+  rowHeight = 2,
   virtualize
 }) => {
-  const containerRef = React.useRef<HTMLUListElement>(null)
+  const containerRef = React.useRef<HTMLUListElement | null>(null)
+  const [scrollableContainer, setScrollableContainer] = React.useState<Element | null>(null)
+  const containerRefCallback = React.useCallback(
+    element => {
+      if (element) {
+        containerRef.current = element
+        if (virtualize) {
+          const scrollContainer = getScrollContainer(element)
+          setScrollableContainer(scrollContainer)
+        }
+      }
+    },
+    [virtualize]
+  )
   const subTreeContents = React.useRef<SubTreeContents>({})
   const [ariaLiveMessage, setAriaLiveMessage] = React.useState('')
   const announceUpdate = React.useCallback((message: string) => {
@@ -282,8 +299,15 @@ const Root: React.FC<TreeViewProps> = ({
       if (element instanceof HTMLElement) {
         element.focus()
       }
-    }
+    },
+    rowHeight,
+    scrollContainer: scrollableContainer,
+    subTreeContents: subTreeContents.current,
+    virtualize: !!virtualize
   })
+  useSubTreeContents(children, !!virtualize, true, ROOT_ID, subTreeContents.current)
+  // use a callback ref to get the scroll container for this container and update the state with it
+  // to force a rerender. Don't render the children until the ref is set.
 
   const expandedStateCache = React.useRef<Map<string, boolean> | null>(null)
 
@@ -296,6 +320,7 @@ const Root: React.FC<TreeViewProps> = ({
       value={{
         announceUpdate,
         expandedStateCache,
+        rowHeight,
         scrollableContainer,
         subTreeContents: subTreeContents.current,
         virtualize
@@ -305,8 +330,8 @@ const Root: React.FC<TreeViewProps> = ({
         <VisuallyHidden role="status" aria-live="polite" aria-atomic="true">
           {ariaLiveMessage}
         </VisuallyHidden>
-        <UlBox ref={containerRef} role="tree" aria-label={ariaLabel} aria-labelledby={ariaLabelledby}>
-          {children}
+        <UlBox ref={containerRefCallback} role="tree" aria-label={ariaLabel} aria-labelledby={ariaLabelledby}>
+          {(!virtualize || scrollableContainer) && children}
         </UlBox>
       </>
     </RootContext.Provider>
@@ -329,9 +354,6 @@ export type TreeViewItemProps = {
 }
 
 const {Slots, Slot} = createSlots(['LeadingVisual', 'TrailingVisual'])
-
-// height in rem
-const defaultItemHeight = 2
 
 const Item = React.forwardRef<HTMLElement, TreeViewItemProps>(
   (
@@ -538,7 +560,7 @@ export type TreeViewSubTreeProps = {
 }
 
 const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
-  const {announceUpdate, scrollableContainer, subTreeContents, virtualize} = React.useContext(RootContext)
+  const {announceUpdate, rowHeight, scrollableContainer, subTreeContents, virtualize} = React.useContext(RootContext)
   const {itemId, isExpanded, isSubTreeEmpty, setIsSubTreeEmpty} = React.useContext(ItemContext)
   const [isLoadingItemVisible, setIsLoadingItemVisible] = React.useState(false)
   const childCount = React.Children.count(children)
@@ -547,13 +569,15 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
   const {safeSetTimeout} = useSafeTimeout()
   const loadingItemRef = React.useRef<HTMLElement>(null)
   const ref = React.useRef<HTMLElement>(null)
-  console.log(`${itemId} count ${childCount}`)
+  // eslint-disable-next-line no-console
+  // console.log(`${itemId} count ${childCount}`)
 
   const handleIntersection = React.useCallback(
     (entries: IntersectionObserverEntry[]) => {
       for (const entry of entries) {
         // eslint-disable-next-line no-console
-        console.log(entry)
+        console.log(entry.intersectionRatio)
+        // console.log(entry)
         const bottomAboveViewport =
           entry.target.getAttribute('data-intersection') === 'below' &&
           entry.rootBounds &&
@@ -566,25 +590,25 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
           entry.intersectionRatio === 0
         if (bottomAboveViewport) {
           // eslint-disable-next-line no-console
-          console.log('Bottom is above, safe to hide')
+          // console.log('Bottom is above, safe to hide')
           setVisibleStartIndex(childCount)
           setVisibleEndIndex(childCount)
         } else if (topBelowViewport) {
           // eslint-disable-next-line no-console
-          console.log('Top is below, safe to hide')
+          // console.log('Top is below, safe to hide')
           setVisibleStartIndex(0)
           setVisibleEndIndex(0)
         } else if (entry.intersectionRatio > 0) {
           if (entry.target.getAttribute('data-intersection') === 'below') {
             // show the next 50 items
             // eslint-disable-next-line no-console
-            console.log('show the next 50 items')
+            // console.log('show the next 50 items')
             setVisibleStartIndex(Math.max(visibleEndIndex - 50, 0))
             setVisibleEndIndex(Math.min(visibleEndIndex + 50, childCount))
           } else if (entry.target.getAttribute('data-intersection') === 'above') {
             // show the previous 50 items
             // eslint-disable-next-line no-console
-            console.log('show the previous 50 items')
+            // console.log('show the previous 50 items')
             setVisibleStartIndex(Math.max(visibleStartIndex - 50, 0))
             setVisibleEndIndex(Math.min(visibleStartIndex + 50, childCount))
           }
@@ -594,9 +618,16 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
     [childCount, visibleEndIndex, visibleStartIndex]
   )
 
+  if (!scrollableContainer) {
+    console.log(`scrollableContainer not defined for ${itemId}`)
+  } else {
+    console.log(`scrollableContainer observed for ${itemId}`)
+  }
+
   const [observe, unobserve] = useIntersectionObserver(handleIntersection, {
-    root: scrollableContainer?.current,
-    rootMargin: '200px'
+    root: scrollableContainer,
+    rootMargin: '400px',
+    threshold: [0, 0.0001]
   })
 
   React.useEffect(() => {
@@ -665,25 +696,7 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
     }
   }, [state, safeSetTimeout, isLoadingItemVisible, itemId])
 
-  React.useEffect(() => {
-    const contents = []
-    for (const child of React.Children.toArray(children)) {
-      const childrenWithoutSubTree = getChildrenWithoutSubTree((child as React.ReactElement).props.children)
-      const textContent = onlyText(childrenWithoutSubTree)
-      // eslint-disable-next-line no-console
-      console.log(textContent)
-      const childContent: ItemInfo = { text: textContent }
-      const subTree = getSubTree((child as React.ReactElement).props.children)
-      if (subTree) {
-        // Add the subtree to the current contents
-        // eslint-disable-next-line no-console
-        console.log(subTree.toString())
-        childContent.subTreeId = `${(child as React.ReactElement).props.id}`
-      }
-      contents.push(childContent)
-    }
-    subTreeContents[itemId] = contents
-  }, [children, itemId, subTreeContents])
+  useSubTreeContents(children, !!virtualize, isExpanded, itemId, subTreeContents)
 
   if (!isExpanded) {
     return null
@@ -714,8 +727,8 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
   )
 
   if (virtualize) {
-    const paddingTop = getSubTreePadding(0, visibleStartIndex, subTreeContents, itemId)
-    const paddingBottom = getSubTreePadding(visibleEndIndex, childCount, subTreeContents, itemId)
+    const paddingTop = getSubTreePadding(0, visibleStartIndex, subTreeContents, itemId, rowHeight)
+    const paddingBottom = getSubTreePadding(visibleEndIndex, childCount, subTreeContents, itemId, rowHeight)
 
     return (
       <>
@@ -741,14 +754,26 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
   }
 }
 
-function getSubTreePadding(start: number, end: number, subTreeContents: SubTreeContents, subTreeId: string) {
+function getSubTreePadding(
+  start: number,
+  end: number,
+  subTreeContents: SubTreeContents,
+  subTreeId: string,
+  rowHeight: number
+) {
   let padding = 0
   for (let i = start; i < end; i++) {
-    padding += defaultItemHeight
+    padding += rowHeight
     const content = subTreeContents[subTreeId]?.[i]
     if (content?.subTreeId) {
       // get the height of the subtree
-      padding += getSubTreePadding(0, subTreeContents[content.subTreeId].length, subTreeContents, content.subTreeId)
+      padding += getSubTreePadding(
+        0,
+        subTreeContents[content.subTreeId].length,
+        subTreeContents,
+        content.subTreeId,
+        rowHeight
+      )
     }
   }
   return padding
@@ -853,28 +878,6 @@ const LoadingItem = React.forwardRef<HTMLElement, LoadingItemProps>(({count}, re
     </Item>
   )
 })
-
-function useSubTree(children: React.ReactNode) {
-  return React.useMemo(() => {
-    const subTree = getSubTree(children)
-
-    const childrenWithoutSubTree = getChildrenWithoutSubTree(children)
-
-    return {
-      subTree,
-      childrenWithoutSubTree,
-      hasSubTree: Boolean(subTree)
-    }
-  }, [children])
-}
-
-function getSubTree(children: React.ReactNode) {
-  return React.Children.toArray(children).find(child => React.isValidElement(child) && child.type === SubTree)
-}
-
-function getChildrenWithoutSubTree(children: React.ReactNode) {
-  return React.Children.toArray(children).filter(child => !(React.isValidElement(child) && child.type === SubTree))
-}
 
 // ----------------------------------------------------------------------------
 // TreeView.LeadingVisual and TreeView.TrailingVisual

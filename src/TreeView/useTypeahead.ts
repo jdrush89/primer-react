@@ -1,13 +1,25 @@
 import React from 'react'
 import useSafeTimeout from '../hooks/useSafeTimeout'
-import {getAccessibleName} from './shared'
+import {getAccessibleName, ROOT_ID} from './shared'
+import {SubTreeContents} from './useSubTreeContents'
 
 type TypeaheadOptions = {
   containerRef: React.RefObject<HTMLElement>
   onFocusChange: (element: Element) => void
+  scrollContainer: Element | null
+  subTreeContents: SubTreeContents
+  rowHeight: number
+  virtualize: boolean
 }
 
-export function useTypeahead({containerRef, onFocusChange}: TypeaheadOptions) {
+export function useTypeahead({
+  containerRef,
+  onFocusChange,
+  rowHeight,
+  scrollContainer,
+  subTreeContents,
+  virtualize
+}: TypeaheadOptions) {
   const [searchValue, setSearchValue] = React.useState('')
   const timeoutRef = React.useRef(0)
   const onFocusChangeRef = React.useRef(onFocusChange)
@@ -51,6 +63,30 @@ export function useTypeahead({containerRef, onFocusChange}: TypeaheadOptions) {
     // Don't change focus if the search value is empty
     if (!searchValue) return
 
+    if (virtualize) {
+      // The element could be virtualized. Try going through the subTreeContents and find the scroll position
+      // needed to materlize it.
+      const match = findSubTreeMatch(
+        subTreeContents,
+        ROOT_ID,
+        searchValue,
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        document.activeElement!.id,
+        false,
+        0,
+        rowHeight,
+        {id: '', offset: 0}
+      )
+      if (match.id && scrollContainer) {
+        scrollContainer.scrollTop = convertRemToPixels(match.offset) - scrollContainer.clientHeight / 2
+        const focusMatch = async () => {
+          const element = await waitForElement(`#${match.id}`)
+          !!element && onFocusChangeRef.current(element)
+        }
+        focusMatch()
+      }
+      return
+    }
     if (!containerRef.current) return
     const container = containerRef.current
 
@@ -81,7 +117,82 @@ export function useTypeahead({containerRef, onFocusChange}: TypeaheadOptions) {
     if (nextElement) {
       onFocusChangeRef.current(nextElement)
     }
-  }, [searchValue, containerRef])
+  }, [searchValue, containerRef, virtualize, subTreeContents, scrollContainer, rowHeight])
+}
+
+function waitForElement(selector: string): Promise<Element | null> {
+  return new Promise(resolve => {
+    if (document.querySelector(selector)) {
+      return resolve(document.querySelector(selector))
+    }
+
+    const observer = new MutationObserver(() => {
+      if (document.querySelector(selector)) {
+        resolve(document.querySelector(selector))
+        observer.disconnect()
+      }
+    })
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    })
+  })
+}
+
+function convertRemToPixels(rem: number) {
+  return rem * parseFloat(getComputedStyle(document.documentElement).fontSize)
+}
+
+interface Match {
+  id: string
+  offset: number
+}
+
+function findSubTreeMatch(
+  subTreeContents: SubTreeContents,
+  subTreeId: string,
+  searchValue: string,
+  activeId: string | null,
+  pastActive: boolean,
+  offset: number,
+  rowHeight: number,
+  firstMatch: Match
+): Match {
+  for (const row of subTreeContents[subTreeId]) {
+    const rowText = row.text.toLowerCase()
+    offset += rowHeight
+    if (!firstMatch.id && !pastActive && rowText.startsWith(searchValue.toLowerCase())) {
+      firstMatch.id = row.id
+      firstMatch.offset = offset
+    }
+    if (pastActive && rowText.startsWith(searchValue.toLowerCase())) {
+      return {id: row.id, offset}
+    }
+    if (activeId && row.id === activeId) {
+      pastActive = true
+    }
+    if (row.subTreeId) {
+      const match = findSubTreeMatch(
+        subTreeContents,
+        row.subTreeId,
+        searchValue,
+        activeId,
+        pastActive,
+        offset,
+        rowHeight,
+        firstMatch
+      )
+      if (match.id) {
+        return match
+      }
+      offset = match.offset
+    }
+  }
+  if (subTreeId === ROOT_ID && firstMatch.id) {
+    return firstMatch
+  }
+  return {id: '', offset}
 }
 
 /**
