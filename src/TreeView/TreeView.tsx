@@ -21,7 +21,7 @@ import VisuallyHidden from '../_VisuallyHidden'
 import {getAccessibleName, ROOT_ID} from './shared'
 import {getFirstChildElement, useRovingTabIndex} from './useRovingTabIndex'
 import {useTypeahead} from './useTypeahead'
-import ObservableBox from './ObservableBox'
+import ObservableBox, { useObservedElement } from './ObservableBox'
 import useIntersectionObserver from './useIntersectionObserver'
 import {useSubTreeContents, useSubTree} from './useSubTreeContents'
 
@@ -360,7 +360,8 @@ const Item = React.forwardRef<HTMLElement, TreeViewItemProps>(
     {id: itemId, current: isCurrentItem = false, defaultExpanded, expanded, onExpandedChange, onSelect, children},
     ref
   ) => {
-    const {expandedStateCache} = React.useContext(RootContext)
+    const {expandedStateCache, scrollableContainer, virtualize} = React.useContext(RootContext)
+    const containerRef = React.useRef<HTMLDivElement>(null)
     const labelId = useSSRSafeId()
     const leadingVisualId = useSSRSafeId()
     const trailingVisualId = useSSRSafeId()
@@ -377,6 +378,24 @@ const Item = React.forwardRef<HTMLElement, TreeViewItemProps>(
     const {level} = React.useContext(ItemContext)
     const {hasSubTree, subTree, childrenWithoutSubTree} = useSubTree(children)
     const [isSubTreeEmpty, setIsSubTreeEmpty] = React.useState(!hasSubTree)
+
+    const [contentsVisible, setContentsVisible] = React.useState(false)
+    const handleIntersection = React.useCallback((entries: IntersectionObserverEntry[]) => {
+      for (const entry of entries) {
+        if (entry.intersectionRatio > 0) {
+          setContentsVisible(true)
+        } else {
+          setContentsVisible(false)
+        }
+      }
+    }, [])
+
+    const [observe, unobserve] = useIntersectionObserver(handleIntersection, {
+      root: scrollableContainer,
+      rootMargin: '400px',
+      threshold: [0, 0.0001]
+    })
+    useObservedElement(virtualize ? (containerRef as React.RefObject<Element>) : undefined, observe, unobserve)
 
     // Set the expanded state and cache it
     const setIsExpandedWithCache = React.useCallback(
@@ -458,6 +477,7 @@ const Item = React.forwardRef<HTMLElement, TreeViewItemProps>(
           {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
           <div
             className="PRIVATE_TreeView-item-container"
+            ref={containerRef}
             style={{
               // @ts-ignore CSS custom property
               '--level': level
@@ -470,37 +490,41 @@ const Item = React.forwardRef<HTMLElement, TreeViewItemProps>(
               }
             }}
           >
-            <div style={{gridArea: 'spacer', display: 'flex'}}>
-              <LevelIndicatorLines level={level} />
-            </div>
-            {hasSubTree ? (
-              // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
-              <div
-                className={classnames(
-                  'PRIVATE_TreeView-item-toggle',
-                  onSelect && 'PRIVATE_TreeView-item-toggle--hover',
-                  level === 1 && 'PRIVATE_TreeView-item-toggle--end'
-                )}
-                onClick={event => {
-                  if (onSelect) {
-                    toggle(event)
-                  }
-                }}
-              >
-                {isExpanded ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
-              </div>
-            ) : null}
-            <div id={labelId} className="PRIVATE_TreeView-item-content">
-              <Slots>
-                {slots => (
-                  <>
-                    {slots.LeadingVisual}
-                    <span className="PRIVATE_TreeView-item-content-text">{childrenWithoutSubTree}</span>
-                    {slots.TrailingVisual}
-                  </>
-                )}
-              </Slots>
-            </div>
+            {(contentsVisible || !virtualize) && (
+              <>
+                <div style={{gridArea: 'spacer', display: 'flex'}}>
+                  <LevelIndicatorLines level={level} />
+                </div>
+                {hasSubTree ? (
+                  // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+                  <div
+                    className={classnames(
+                      'PRIVATE_TreeView-item-toggle',
+                      onSelect && 'PRIVATE_TreeView-item-toggle--hover',
+                      level === 1 && 'PRIVATE_TreeView-item-toggle--end'
+                    )}
+                    onClick={event => {
+                      if (onSelect) {
+                        toggle(event)
+                      }
+                    }}
+                  >
+                    {isExpanded ? <ChevronDownIcon size={12} /> : <ChevronRightIcon size={12} />}
+                  </div>
+                ) : null}
+                <div id={labelId} className="PRIVATE_TreeView-item-content">
+                  <Slots>
+                    {slots => (
+                      <>
+                        {slots.LeadingVisual}
+                        <span className="PRIVATE_TreeView-item-content-text">{childrenWithoutSubTree}</span>
+                        {slots.TrailingVisual}
+                      </>
+                    )}
+                  </Slots>
+                </div>
+              </>
+            )}
           </div>
           {subTree}
         </li>
@@ -565,7 +589,8 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
   const [isLoadingItemVisible, setIsLoadingItemVisible] = React.useState(false)
   const childCount = React.Children.count(children)
   const [visibleStartIndex, setVisibleStartIndex] = React.useState(0)
-  const [visibleEndIndex, setVisibleEndIndex] = React.useState(Math.min(childCount, 100))
+  const pageSize = 1000
+  const [visibleEndIndex, setVisibleEndIndex] = React.useState(Math.min(childCount, pageSize))
   const {safeSetTimeout} = useSafeTimeout()
   const loadingItemRef = React.useRef<HTMLElement>(null)
   const ref = React.useRef<HTMLElement>(null)
@@ -603,26 +628,20 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
             // show the next 50 items
             // eslint-disable-next-line no-console
             // console.log('show the next 50 items')
-            setVisibleStartIndex(Math.max(visibleEndIndex - 50, 0))
-            setVisibleEndIndex(Math.min(visibleEndIndex + 50, childCount))
+            setVisibleStartIndex(Math.max(visibleEndIndex - pageSize / 2, 0))
+            setVisibleEndIndex(Math.min(visibleEndIndex + pageSize / 2, childCount))
           } else if (entry.target.getAttribute('data-intersection') === 'above') {
             // show the previous 50 items
             // eslint-disable-next-line no-console
             // console.log('show the previous 50 items')
-            setVisibleStartIndex(Math.max(visibleStartIndex - 50, 0))
-            setVisibleEndIndex(Math.min(visibleStartIndex + 50, childCount))
+            setVisibleStartIndex(Math.max(visibleStartIndex - pageSize / 2, 0))
+            setVisibleEndIndex(Math.min(visibleStartIndex + pageSize / 2, childCount))
           }
         }
       }
     },
     [childCount, visibleEndIndex, visibleStartIndex]
   )
-
-  if (!scrollableContainer) {
-    console.log(`scrollableContainer not defined for ${itemId}`)
-  } else {
-    console.log(`scrollableContainer observed for ${itemId}`)
-  }
 
   const [observe, unobserve] = useIntersectionObserver(handleIntersection, {
     root: scrollableContainer,
@@ -726,7 +745,7 @@ const SubTree: React.FC<TreeViewSubTreeProps> = ({count, state, children}) => {
     </ul>
   )
 
-  if (virtualize) {
+  if (virtualize && false) {
     const paddingTop = getSubTreePadding(0, visibleStartIndex, subTreeContents, itemId, rowHeight)
     const paddingBottom = getSubTreePadding(visibleEndIndex, childCount, subTreeContents, itemId, rowHeight)
 

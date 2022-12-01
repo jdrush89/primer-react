@@ -2,13 +2,13 @@ import React, {ComponentProps, PropsWithChildren, useEffect, useRef} from 'react
 import type {RefObject} from 'react'
 import Box from '../Box'
 
-function useObservedElement<T extends Element>(
-  elementRef: RefObject<T>,
+export function useObservedElement<T extends Element>(
+  elementRef?: RefObject<T>,
   observe?: (element: Element) => void,
   unobserve?: (element: Element) => void
 ) {
   useEffect(() => {
-    if (elementRef.current) {
+    if (elementRef?.current) {
       const ref = elementRef.current
       observe?.(ref)
       return () => unobserve?.(ref)

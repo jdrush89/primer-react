@@ -671,6 +671,43 @@ StressTest.parameters = {
   chromatic: {disableSnapshot: true}
 }
 
+export const VirtualizedStressTest: Story = () => {
+  const [virtualize, setVirtualize] = React.useState(true)
+  return (
+    <Box sx={{display: 'flex', width: '500px'}}>
+      <Box sx={{overflow: 'auto', height: '200px', flexGrow: 1}}>
+        <TreeView aria-label="Files" virtualize={virtualize}>
+          {Array.from({length: 7}).map((_, i) => (
+            <TreeView.Item key={i} id={`directory-${i}`} defaultExpanded>
+              <TreeView.LeadingVisual>
+                <TreeView.DirectoryIcon />
+              </TreeView.LeadingVisual>
+              {`Directory ${i}`}
+              <TreeView.SubTree>
+                {Array.from({length: 1000}).map((_, j) => (
+                  <TreeView.Item key={i} id={`directory-${i}/file-${j}`}>
+                    <TreeView.LeadingVisual>
+                      <FileIcon />
+                    </TreeView.LeadingVisual>
+                    {`File ${j}`}
+                  </TreeView.Item>
+                ))}
+              </TreeView.SubTree>
+            </TreeView.Item>
+          ))}
+        </TreeView>
+      </Box>
+      <Button sx={{height: '32px'}} onClick={() => setVirtualize(!virtualize)}>{`Turn Virtualization ${
+        virtualize ? 'off' : 'on'
+      }`}</Button>
+    </Box>
+  )
+}
+
+VirtualizedStressTest.parameters = {
+  chromatic: {disableSnapshot: true}
+}
+
 export const Virtualized: Story = () => {
   const [virtualize, setVirtualize] = React.useState(true)
   return (
@@ -722,7 +759,7 @@ export const Virtualized: Story = () => {
           ))}
         </TreeView>
       </Box>
-      <Button sx={{height: '32px'}} onClick={() => setVirtualize(!virtualize)}>{`Virtualize ${
+      <Button sx={{height: '32px'}} onClick={() => setVirtualize(!virtualize)}>{`Turn Virtualization ${
         virtualize ? 'off' : 'on'
       }`}</Button>
     </Box>
